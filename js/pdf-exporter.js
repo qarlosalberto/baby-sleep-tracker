@@ -22,7 +22,7 @@ class PDFExporter {
             `;
             exportBtn.disabled = true;
 
-            // --- CANVAS TEMPORAL PARA LA GRÁFICA ---
+            // --- CANVAS TEMPORAL PARA LA GRÁFICA DE BARRAS APILADAS POR PERIODO ---
             let chartImageData = null;
             const tempCanvas = document.createElement('canvas');
             tempCanvas.width = 800;
@@ -34,17 +34,35 @@ class PDFExporter {
                 chartDataForExport = await window.chart.loadGraphData();
             }
             if (chartDataForExport && chartDataForExport.labels.length > 0 && window.Chart) {
+                // Colores para cada periodo
+                const morningColor = 'rgba(255, 205, 86, 0.85)';
+                const afternoonColor = 'rgba(54, 162, 235, 0.85)';
+                const nightColor = 'rgba(153, 102, 255, 0.85)';
+                const datasets = [
+                    {
+                        label: window.language.currentLang === 'es' ? 'Mañana (7:00 - 12:00)' : 'Morning (7:00am - 12:00pm)',
+                        data: chartDataForExport.morning,
+                        backgroundColor: morningColor,
+                        stack: 'sleep',
+                    },
+                    {
+                        label: window.language.currentLang === 'es' ? 'Tarde (12:00 - 20:00)' : 'Afternoon (12:00pm - 8:00pm)',
+                        data: chartDataForExport.afternoon,
+                        backgroundColor: afternoonColor,
+                        stack: 'sleep',
+                    },
+                    {
+                        label: window.language.currentLang === 'es' ? 'Noche (20:00 - 7:00)' : 'Night (8:00pm - 7:00am)',
+                        data: chartDataForExport.night,
+                        backgroundColor: nightColor,
+                        stack: 'sleep',
+                    }
+                ];
                 const tempChart = new window.Chart(tempCtx, {
                     type: 'bar',
                     data: {
                         labels: chartDataForExport.labels,
-                        datasets: [{
-                            label: window.language.currentLang === 'es' ? 'Horas dormidas por día' : 'Hours slept per day',
-                            data: chartDataForExport.durations,
-                            backgroundColor: 'rgba(54, 162, 235, 0.8)',
-                            borderColor: 'rgba(54, 162, 235, 1)',
-                            borderWidth: 1
-                        }]
+                        datasets
                     },
                     options: {
                         responsive: false,
@@ -53,7 +71,9 @@ class PDFExporter {
                             title: {
                                 display: true,
                                 text: window.language.currentLang === 'es' ? 'Horas dormidas por día' : 'Hours slept per day'
-                            }
+                            },
+                            legend: { display: true },
+                            tooltip: { enabled: false }
                         },
                         scales: {
                             y: {
@@ -79,6 +99,110 @@ class PDFExporter {
             tempCanvas.remove();
             // --- FIN CANVAS TEMPORAL ---
 
+            // --- CANVAS TEMPORAL PARA GRÁFICO DE INTERVALOS (GANTT) ---
+            let ganttImageData = null;
+            let ganttLegend = null;
+            if (window.sleepHistory && typeof window.sleepHistory.getHistoryForGantt === 'function' && window.Chart) {
+                const ganttData = await window.sleepHistory.getHistoryForGantt(fromDate, toDate, { raw: true });
+                if (ganttData && ganttData.days && ganttData.naps && ganttData.days.length > 0 && ganttData.naps.length > 0) {
+                    // Generar datasets igual que en chart.js (barras "floating" verticales, cada nap en su hora real)
+                    const datasets = [];
+                    ganttData.naps.forEach((nap, idx) => {
+                        const data = Array(ganttData.days.length).fill(null);
+                        data[nap.dayIndex] = [nap.startHour, nap.endHour];
+                        const duration = nap.endHour - nap.startHour;
+                        let color = '';
+                        if (duration > 3) {
+                            color = 'rgba(255, 99, 132, 0.45)';
+                        } else if (duration < 1.5) {
+                            color = 'rgba(120, 180, 255, 0.35)';
+                        } else if (duration < 2.5) {
+                            color = 'rgba(54, 162, 235, 0.55)';
+                        } else {
+                            color = 'rgba(30, 90, 180, 0.75)';
+                        }
+                        datasets.push({
+                            label: `${ganttData.days[nap.dayIndex]} ${nap.startHour.toFixed(2)}-${nap.endHour.toFixed(2)} (${(nap.endHour-nap.startHour).toFixed(2)}h)`,
+                            data,
+                            backgroundColor: color,
+                            borderWidth: 1,
+                            barPercentage: 1.0,
+                            categoryPercentage: 1.0
+                        });
+                    });
+                    // Leyenda igual que en chart.js
+                    ganttLegend = [
+                        { color: 'rgba(255, 99, 132, 0.45)', label: lang && lang.legendLongNap ? lang.legendLongNap : (window.language.currentLang === 'es' ? '>3h' : '>3h (light red)') },
+                        { color: 'rgba(30, 90, 180, 0.75)', label: lang && lang.legendIntenseBlue ? lang.legendIntenseBlue : (window.language.currentLang === 'es' ? '2.5-3h' : '2.5-3h') },
+                        { color: 'rgba(54, 162, 235, 0.55)', label: lang && lang.legendMediumBlue ? lang.legendMediumBlue : (window.language.currentLang === 'es' ? '1.5-2.5h' : '1.5-2.5h') },
+                        { color: 'rgba(120, 180, 255, 0.35)', label: lang && lang.legendLightBlue ? lang.legendLightBlue : (window.language.currentLang === 'es' ? '<1.5h' : '<1.5h') }
+                    ];
+                    // Crear canvas temporal y renderizar el gráfico
+                    const tempGanttCanvas = document.createElement('canvas');
+                    tempGanttCanvas.width = Math.max(900, ganttData.days.length * 40);
+                    tempGanttCanvas.height = 500;
+                    document.body.appendChild(tempGanttCanvas);
+                    const tempGanttCtx = tempGanttCanvas.getContext('2d');
+                    // Usar chartjs-plugin-floating-bar para barras verticales flotantes (como en UI)
+                    const tempGanttChart = new window.Chart(tempGanttCtx, {
+                        type: 'bar',
+                        data: {
+                            labels: ganttData.days.map(d => {
+                                // d es la fecha en formato YYYY-MM-DD
+                                const [year, month, day] = d.split('-');
+                                return `${day}/${month}`;
+                            }),
+                            datasets
+                        },
+                        options: {
+                            indexAxis: 'x',
+                            responsive: false,
+                            animation: false,
+                            plugins: {
+                                title: {
+                                    display: true,
+                                    text: lang && lang.napsChartTitle ? lang.napsChartTitle : (window.language.currentLang === 'es' ? 'Intervalos de sueño (Gantt)' : 'Sleep intervals (Gantt)')
+                                },
+                                legend: { display: false },
+                                tooltip: { enabled: false }
+                            },
+                            scales: {
+                                x: {
+                                    title: {
+                                        display: true,
+                                        text: lang && lang.day ? lang.day : (window.language && window.language.currentLang === 'es' ? 'Día' : 'Day')
+                                    },
+                                    stacked: false
+                                },
+                                y: {
+                                    min: 0,
+                                    max: 24,
+                                    title: {
+                                        display: true,
+                                        text: window.language && window.language.currentLang === 'es' ? 'Hora del día' : 'Hour of day'
+                                    },
+                                    ticks: {
+                                        stepSize: 2,
+                                        callback: function(value) {
+                                            return (value < 10 ? '0' : '') + value + ':00';
+                                        }
+                                    },
+                                    stacked: false
+                                }
+                            },
+                            barPercentage: 1.0,
+                            categoryPercentage: 1.0
+                        },
+                        plugins: [window['ChartFloatingBar']].filter(Boolean)
+                    });
+                    await new Promise(resolve => setTimeout(resolve, 300));
+                    ganttImageData = tempGanttCanvas.toDataURL('image/png', 1.0);
+                    tempGanttChart.destroy();
+                    tempGanttCanvas.remove();
+                }
+            }
+            // --- FIN CANVAS GANTT ---
+
             // Get data for PDF
             const { historyData, chartData } = await this.getDataForPDF(fromDate, toDate);
             // Generate summary statistics for PDF inclusion
@@ -91,7 +215,7 @@ class PDFExporter {
                 window.summary.summaryData = window.summary.calculateStatistics(sleepDataForSummary);
             }
             // Create PDF, pasando la imagen de la gráfica generada
-            await this.generatePDF(historyData, chartData, fromDate, toDate, lang, chartImageData);
+            await this.generatePDF(historyData, chartData, fromDate, toDate, lang, chartImageData, ganttImageData);
         } catch (error) {
             console.error('Error exporting PDF:', error);
             alert(`Error: ${error.message}`);
@@ -184,7 +308,7 @@ class PDFExporter {
         };
     }
 
-    async generatePDF(historyData, chartData, fromDate, toDate, lang, chartImageData) {
+    async generatePDF(historyData, chartData, fromDate, toDate, lang, chartImageData, ganttImageData) {
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF();
         
@@ -227,7 +351,7 @@ class PDFExporter {
             doc.setFont('helvetica', 'bold');
             doc.text(lang.summary || 'Resumen', 20, yPos);
             yPos += 10;
-            
+
             const totalRecords = historyData.length;
             const totalMinutes = historyData.reduce((sum, record) => {
                 const [hours, mins] = record.duration.replace('h', '').replace('m', '').split(' ');
@@ -236,77 +360,69 @@ class PDFExporter {
             const avgDuration = Math.round(totalMinutes / totalRecords);
             const avgHours = Math.floor(avgDuration / 60);
             const avgMins = avgDuration % 60;
-            
+
             doc.setFont('helvetica', 'normal');
-            doc.text(`${lang.totalRecords || 'Total de registros'}: ${totalRecords}`, 20, yPos);
+            // Viñetas principales
+            const bullet = '\u2022';
+            doc.text(`${bullet} ${lang.totalRecords || 'Total de registros'}: ${totalRecords}`, 24, yPos);
             yPos += 7;
-            doc.text(`${lang.avgDuration || 'Duración promedio'}: ${avgHours}h ${avgMins}m`, 20, yPos);
+            doc.text(`${bullet} ${lang.avgDuration || 'Duración promedio'}: ${avgHours}h ${avgMins}m`, 24, yPos);
             yPos += 7;
-            doc.text(`${lang.totalSleep || 'Total de horas dormidas'}: ${Math.round(totalMinutes / 60 * 100) / 100}h`, 20, yPos);
-            yPos += 15;
+            doc.text(`${bullet} ${lang.totalSleep || 'Total de horas dormidas'}: ${Math.round(totalMinutes / 60 * 100) / 100}h`, 24, yPos);
+            yPos += 10;
 
             // Add detailed statistics by time period
             if (window.summary && window.summary.summaryData) {
                 const summaryStats = window.summary.summaryData;
-                
                 doc.setFont('helvetica', 'bold');
                 doc.text(lang.summaryStats || 'Estadísticas de Sueño', 20, yPos);
+                yPos += 8;
+                doc.setFont('helvetica', 'normal');
+                // Sub-bullets for each period
+                const subBullet = '\u2013'; // guion largo
+                // Morning
+                doc.text(`${bullet} ${window.language.currentLang === 'es' ? 'Mañana (7:00 - 12:00)' : 'Morning (7:00am - 12:00pm)'}`, 24, yPos);
+                yPos += 6;
+                doc.text(`   ${subBullet} ${lang.avgHoursLabel || 'Promedio horas:'} ${window.summary.formatHours(summaryStats.morning.avgHours)}`, 28, yPos);
+                yPos += 5;
+                doc.text(`   ${subBullet} ${lang.avgNapsLabel || 'Promedio siestas:'} ${window.summary.formatNumber(summaryStats.morning.avgNaps)}`, 28, yPos);
+                yPos += 5;
+                doc.text(`   ${subBullet} ${lang.avgDurationLabel || 'Duración promedio:'} ${window.summary.formatHours(summaryStats.morning.avgDuration)}`, 28, yPos);
+                yPos += 7;
+                // Afternoon
+                doc.text(`${bullet} ${window.language.currentLang === 'es' ? 'Tarde (12:00 - 20:00)' : 'Afternoon (12:00pm - 8:00pm)'}`, 24, yPos);
+                yPos += 6;
+                doc.text(`   ${subBullet} ${lang.avgHoursLabel || 'Promedio horas:'} ${window.summary.formatHours(summaryStats.afternoon.avgHours)}`, 28, yPos);
+                yPos += 5;
+                doc.text(`   ${subBullet} ${lang.avgNapsLabel || 'Promedio siestas:'} ${window.summary.formatNumber(summaryStats.afternoon.avgNaps)}`, 28, yPos);
+                yPos += 5;
+                doc.text(`   ${subBullet} ${lang.avgDurationLabel || 'Duración promedio:'} ${window.summary.formatHours(summaryStats.afternoon.avgDuration)}`, 28, yPos);
+                yPos += 7;
+                // Night
+                doc.text(`${bullet} ${window.language.currentLang === 'es' ? 'Noche (20:00 - 7:00)' : 'Night (8:00pm - 7:00am)'}`, 24, yPos);
+                yPos += 6;
+                doc.text(`   ${subBullet} ${lang.avgHoursLabel || 'Promedio horas:'} ${window.summary.formatHours(summaryStats.night.avgHours)}`, 28, yPos);
+                yPos += 5;
+                doc.text(`   ${subBullet} ${lang.avgNapsLabel || 'Promedio siestas:'} ${window.summary.formatNumber(summaryStats.night.avgNaps)}`, 28, yPos);
+                yPos += 5;
+                doc.text(`   ${subBullet} ${lang.avgDurationLabel || 'Duración promedio:'} ${window.summary.formatHours(summaryStats.night.avgDuration)}`, 28, yPos);
+                yPos += 7;
+                // Daily
+                doc.text(`${bullet} ${lang.dailyStatsTitle || 'Estadísticas Diarias'}`, 24, yPos);
+                yPos += 6;
+                doc.text(`   ${subBullet} ${lang.avgDailyHoursLabel || 'Promedio horas por día:'} ${window.summary.formatHours(summaryStats.daily.avgHours)}`, 28, yPos);
+                yPos += 5;
+                doc.text(`   ${subBullet} ${lang.avgDailyNapsLabel || 'Promedio siestas por día:'} ${window.summary.formatNumber(summaryStats.daily.avgNaps)}`, 28, yPos);
+                yPos += 5;
+                doc.text(`   ${subBullet} ${lang.avgNapDurationLabel || 'Duración promedio por siesta:'} ${window.summary.formatHours(summaryStats.overall.avgNapDuration)}`, 28, yPos);
                 yPos += 10;
-                
-                // Morning stats
-                doc.setFont('helvetica', 'bold');
-                doc.text(lang.morningStatsTitle || 'Mañana (6:00 - 12:00)', 20, yPos);
-                yPos += 7;
-                doc.setFont('helvetica', 'normal');
-                doc.text(`  ${lang.avgHoursLabel || 'Promedio horas:'} ${window.summary.formatHours(summaryStats.morning.avgHours)}`, 20, yPos);
-                yPos += 5;
-                doc.text(`  ${lang.avgNapsLabel || 'Promedio siestas:'} ${window.summary.formatNumber(summaryStats.morning.avgNaps)}`, 20, yPos);
-                yPos += 5;
-                doc.text(`  ${lang.avgDurationLabel || 'Duración promedio:'} ${window.summary.formatHours(summaryStats.morning.avgDuration)}`, 20, yPos);
-                yPos += 8;
-                
-                // Afternoon stats
-                doc.setFont('helvetica', 'bold');
-                doc.text(lang.afternoonStatsTitle || 'Tarde (12:00 - 18:00)', 20, yPos);
-                yPos += 7;
-                doc.setFont('helvetica', 'normal');
-                doc.text(`  ${lang.avgHoursLabel || 'Promedio horas:'} ${window.summary.formatHours(summaryStats.afternoon.avgHours)}`, 20, yPos);
-                yPos += 5;
-                doc.text(`  ${lang.avgNapsLabel || 'Promedio siestas:'} ${window.summary.formatNumber(summaryStats.afternoon.avgNaps)}`, 20, yPos);
-                yPos += 5;
-                doc.text(`  ${lang.avgDurationLabel || 'Duración promedio:'} ${window.summary.formatHours(summaryStats.afternoon.avgDuration)}`, 20, yPos);
-                yPos += 8;
-                
-                // Night stats
-                doc.setFont('helvetica', 'bold');
-                doc.text(lang.nightStatsTitle || 'Noche (18:00 - 6:00)', 20, yPos);
-                yPos += 7;
-                doc.setFont('helvetica', 'normal');
-                doc.text(`  ${lang.avgHoursLabel || 'Promedio horas:'} ${window.summary.formatHours(summaryStats.night.avgHours)}`, 20, yPos);
-                yPos += 5;
-                doc.text(`  ${lang.avgNapsLabel || 'Promedio siestas:'} ${window.summary.formatNumber(summaryStats.night.avgNaps)}`, 20, yPos);
-                yPos += 5;
-                doc.text(`  ${lang.avgDurationLabel || 'Duración promedio:'} ${window.summary.formatHours(summaryStats.night.avgDuration)}`, 20, yPos);
-                yPos += 8;
-                
-                // Daily stats
-                doc.setFont('helvetica', 'bold');
-                doc.text(lang.dailyStatsTitle || 'Estadísticas Diarias', 20, yPos);
-                yPos += 7;
-                doc.setFont('helvetica', 'normal');
-                doc.text(`  ${lang.avgDailyHoursLabel || 'Promedio horas por día:'} ${window.summary.formatHours(summaryStats.daily.avgHours)}`, 20, yPos);
-                yPos += 5;
-                doc.text(`  ${lang.avgDailyNapsLabel || 'Promedio siestas por día:'} ${window.summary.formatNumber(summaryStats.daily.avgNaps)}`, 20, yPos);
-                yPos += 5;
-                doc.text(`  ${lang.avgNapDurationLabel || 'Duración promedio por siesta:'} ${window.summary.formatHours(summaryStats.overall.avgNapDuration)}`, 20, yPos);
-                yPos += 15;
             }
         }
         
-        // Salto de página antes de la gráfica
+        // Salto de página antes de la gráfica de barras
         doc.addPage();
         yPos = 20;
-        // Chart
+        // Chart de barras
         if (chartData.length > 0 && chartImageData) {
             doc.setFont('helvetica', 'bold');
             doc.text(lang.sleepChart || 'Gráfico de Sueño', 20, yPos);
@@ -319,6 +435,45 @@ class PDFExporter {
                 yPos += chartHeight + 15;
             } catch (error) {
                 console.warn('Could not add chart to PDF:', error);
+                doc.setFont('helvetica', 'italic');
+                doc.text(lang.chartNotAvailable || 'Gráfico no disponible', 20, yPos);
+                yPos += 15;
+            }
+        }
+
+        // Salto de página antes del gráfico de intervalos (Gantt)
+        if (ganttImageData) {
+            doc.addPage();
+            yPos = 20;
+            doc.setFont('helvetica', 'bold');
+            doc.text(lang.sleepIntervalsChart || 'Intervalos de sueño', 20, yPos);
+            yPos += 10;
+            try {
+                const ganttWidth = 180;
+                const ganttHeight = Math.max(80, (chartData.length || 10) * 10);
+                doc.addImage(ganttImageData, 'PNG', 10, yPos, ganttWidth, ganttHeight);
+                yPos += ganttHeight + 10;
+                // Leyenda de colores debajo del gráfico
+                const legendItems = [
+                    { color: 'rgba(255, 99, 132, 0.45)', label: lang && lang.legendLongNap ? lang.legendLongNap : '>3h' },
+                    { color: 'rgba(30, 90, 180, 0.75)', label: lang && lang.legendIntenseBlue ? lang.legendIntenseBlue : '2.5-3h' },
+                    { color: 'rgba(54, 162, 235, 0.55)', label: lang && lang.legendMediumBlue ? lang.legendMediumBlue : '1.5-2.5h' },
+                    { color: 'rgba(120, 180, 255, 0.35)', label: lang && lang.legendLightBlue ? lang.legendLightBlue : '<1.5h' }
+                ];
+                let legendX = 10;
+                let legendY = yPos;
+                doc.setFontSize(10);
+                legendItems.forEach(item => {
+                    // Dibuja el rectángulo de color
+                    doc.setFillColor(...item.color.match(/\d+/g).map(Number));
+                    doc.rect(legendX, legendY, 10, 6, 'F');
+                    doc.setTextColor(60, 60, 60);
+                    doc.text(item.label, legendX + 14, legendY + 5);
+                    legendX += 60;
+                });
+                yPos += 15;
+            } catch (error) {
+                console.warn('Could not add gantt chart to PDF:', error);
                 doc.setFont('helvetica', 'italic');
                 doc.text(lang.chartNotAvailable || 'Gráfico no disponible', 20, yPos);
                 yPos += 15;

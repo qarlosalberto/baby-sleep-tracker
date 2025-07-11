@@ -8,7 +8,8 @@ class Utils {
     setDefaultValues() {
         const now = new Date();
         const today = now.toISOString().split('T')[0];
-        const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        // 30 días antes
+        const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
         // Current time
         const currentHours = String(now.getHours()).padStart(2, '0');
@@ -31,8 +32,8 @@ class Utils {
         document.getElementById('napStart').value = startTime;
         document.getElementById('napEnd').value = currentTime;
 
-        // Set historical dates (yesterday to today)
-        document.getElementById('sharedFromDate').value = yesterday;
+        // Set historical dates (30 días antes hasta hoy)
+        document.getElementById('sharedFromDate').value = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
         document.getElementById('sharedToDate').value = today;
     }
 

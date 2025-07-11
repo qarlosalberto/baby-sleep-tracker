@@ -22,11 +22,8 @@ class App {
             // Initialize all event listeners
             this.initEventListeners();
             
-            // Default to Config tab if no user is authenticated
-            if (!window.auth || !window.auth.currentUser) {
-                // Switch to config tab by default
-                document.querySelector('[data-tab="config"]').click();
-            }
+            // Default to Sumario tab always
+            document.querySelector('[data-tab="sumario"]').click();
             
             // Auto-load data if Firebase is already configured and user is authenticated
             setTimeout(() => {

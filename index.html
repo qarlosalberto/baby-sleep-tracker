@@ -226,8 +226,12 @@
 
             <!-- Graph -->
             <div id="tab-grafica" class="tab-content hidden">
-                <div class="bg-gray-50 p-4 rounded border">
+                <div class="bg-gray-50 p-4 rounded border mb-6">
                     <canvas id="sleepChart"></canvas>
+                </div>
+                <div class="bg-gray-50 p-4 rounded border">
+                    <h4 class="font-semibold mb-2" id="ganttTitle">Intervalos de sueño (Gantt)</h4>
+                    <canvas id="ganttChart" height="400"></canvas>
                 </div>
             </div>
         </div>
@@ -242,6 +246,7 @@
     <script src="js/history.js"></script>
     <script src="js/chart.js"></script>
     <script src="js/summary.js"></script>
+    <script src="js/gantt-data.js"></script>
     <script src="js/pdf-exporter.js"></script>
     <script src="js/utils.js"></script>
     <script src="js/shared-data-controller.js"></script>
